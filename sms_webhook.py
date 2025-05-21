@@ -78,9 +78,8 @@ def get_zoho_token():
 
 @app.route('/send-sms', methods=['POST'])
 def send_sms():
-    data = request.get_json(force=True)
-    print("📥 RAW Payload:", data)
-
+    data = request.json
+    print("📥 Webhook received:", data)
 
     phone = data.get('phone')
     name = data.get('name', 'there')
@@ -88,9 +87,11 @@ def send_sms():
     owner = data.get('owner')
 
     if not phone or not email:
+        print("❌ Missing phone or email.")
         return jsonify({'error': 'Missing phone/email'}), 400
 
     if owner != your_name:
+        print(f"⏭️ Lead not assigned to {your_name}, skipping.")
         return jsonify({'skipped': 'Lead not yours'}), 200
 
     message = f"""Hello {name}, My name is Steven Bridge—an online specialist with Aurora.
@@ -100,6 +101,7 @@ I see that you’re interested in our kitchen deals. In order to better assist y
 May I know more about your kitchen project/goals?
 
 https://auroracirc.com/"""
+    print("📨 Attempting to send SMS...")
 
     try:
         rc_token = get_rc_token()
@@ -115,10 +117,14 @@ https://auroracirc.com/"""
                 'text': message
             }
         )
+        print("📤 SMS response status:", rc_response.status_code)
+        print("📤 SMS response body:", rc_response.text)
+
         if rc_response.status_code != 200:
-            print("❌ SMS fail:", rc_response.text)
+            print("❌ SMS failed:", rc_response.text)
             return jsonify({'error': 'SMS failed'}), 403
     except Exception as e:
+        print("❌ Exception sending SMS:", str(e))
         return jsonify({'error': str(e)}), 500
 
     # Update Zoho Lead
