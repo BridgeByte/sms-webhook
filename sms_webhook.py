@@ -5,7 +5,7 @@ import os
 
 app = Flask(__name__)
 
-# RingCentral credentials
+# RingCentral credentials from environment
 client_id = os.environ.get("RC_CLIENT_ID")
 client_secret = os.environ.get("RC_CLIENT_SECRET")
 jwt_token = os.environ.get("RINGCENTRAL_JWT")
@@ -31,7 +31,7 @@ May I know more about your kitchen project/goals?
 
 https://auroracirc.com/"""
 
-    # Authenticate
+    # Authenticate with RingCentral
     auth_url = f'{platform_url}/restapi/oauth/token'
     auth_headers = {
         'Authorization': 'Basic ' + b64encode(f'{client_id}:{client_secret}'.encode()).decode(),
@@ -64,13 +64,12 @@ https://auroracirc.com/"""
     sms_response = requests.post(sms_url, headers=sms_headers, json=sms_body)
 
     if sms_response.status_code == 200:
+        print("✅ SMS sent")
         return jsonify({'status': 'SMS sent successfully!'}), 200
     else:
         print("❌ SMS FAILED:", sms_response.status_code, sms_response.text)
         return jsonify({'error': sms_response.text}), 403
 
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
-
