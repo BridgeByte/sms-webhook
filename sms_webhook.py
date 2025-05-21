@@ -44,9 +44,12 @@ def refresh_rc_token():
         print("✅ RC token refreshed successfully.")
         return rc_access_token
     else:
+        import sys  # You can move this to the top of the file if preferred
         print("❌ RC token refresh failed:", response.status_code)
         print(response.text)
+        sys.stdout.flush()  # Force the log to appear on Render
         raise Exception("RC auth error")
+
 
 def refresh_zoho_token():
     global zoho_access_token, zoho_token_expires_at
