@@ -78,8 +78,9 @@ def get_zoho_token():
 
 @app.route('/send-sms', methods=['POST'])
 def send_sms():
-    data = request.json
-    print("📥 Webhook:", data)
+    data = request.get_json(force=True)
+    print("📥 RAW Payload:", data)
+
 
     phone = data.get('phone')
     name = data.get('name', 'there')
