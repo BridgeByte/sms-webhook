@@ -11,7 +11,7 @@ client_id = os.environ.get("RC_CLIENT_ID")
 client_secret = os.environ.get("RC_CLIENT_SECRET")
 platform_url = 'https://platform.ringcentral.com'
 sender_number = '+12014096774'
-\zoho_access_token = os.environ.get("ZOHO_ACCESS_TOKEN")
+zoho_access_token = os.environ.get("ZOHO_ACCESS_TOKEN")
 your_name = "Steven Bridgemohan"
 
 # Store RC token info in memory
