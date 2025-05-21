@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: sms-webhook
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python sms_webhook.py
+    plan: free
+    envVars:
+      - key: RC_CLIENT_ID
+        value: ZHAfEyW09wnbYKPCoo602y
+      - key: RC_CLIENT_SECRET
+        value: 4h078v61NPWcLILi24vh58bDOQhHLN44PcygwYrrnyx8
+      - key: RINGCENTRAL_JWT
+        value: eyJraWQiOiI4NzYyZjU...
