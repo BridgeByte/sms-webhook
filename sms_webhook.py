@@ -1,98 +1,99 @@
 from flask import Flask, request, jsonify
 import requests
-from base64 import b64encode
 import os
 import time
+from base64 import b64encode
 
 app = Flask(__name__)
 
-# RingCentral environment config
-client_id = os.environ.get("RC_CLIENT_ID")
-client_secret = os.environ.get("RC_CLIENT_SECRET")
-platform_url = 'https://platform.ringcentral.com'
-sender_number = '+12014096774'
+# RingCentral config
+rc_client_id = os.environ.get("RC_CLIENT_ID")
+rc_client_secret = os.environ.get("RC_CLIENT_SECRET")
+rc_access_token = os.environ.get("RC_ACCESS_TOKEN")
+rc_refresh_token = os.environ.get("RC_REFRESH_TOKEN")
+platform_url = "https://platform.ringcentral.com"
+sender_number = "+12014096774"
+
+# Token cache for RC
+rc_token_info = {
+    "access_token": rc_access_token,
+    "refresh_token": rc_refresh_token,
+    "expires_at": time.time() + 3500  # Approx 58 minutes
+}
 
 # Zoho config
 zoho_client_id = os.environ.get("ZOHO_CLIENT_ID")
 zoho_client_secret = os.environ.get("ZOHO_CLIENT_SECRET")
 zoho_refresh_token = os.environ.get("ZOHO_REFRESH_TOKEN")
-zoho_access_token = None
+zoho_token = None
 zoho_token_expires_at = 0
 
-your_name = "Steven Bridgemohan"
+# Your name in Zoho CRM
+your_name = os.environ.get("YOUR_NAME")
 
-# RC token cache
-rc_token_store = {
-    "access_token": None,
-    "refresh_token": os.environ.get("RC_REFRESH_TOKEN"),
-    "expires_at": 0
-}
+def refresh_rc_token():
+    print("🔄 Refreshing RingCentral token...")
+    auth_header = "Basic " + b64encode(f"{rc_client_id}:{rc_client_secret}".encode()).decode()
+    res = requests.post(
+        f"{platform_url}/restapi/oauth/token",
+        headers={"Authorization": auth_header, "Content-Type": "application/x-www-form-urlencoded"},
+        data={"grant_type": "refresh_token", "refresh_token": rc_token_info["refresh_token"]}
+    )
+    if res.status_code == 200:
+        data = res.json()
+        rc_token_info["access_token"] = data["access_token"]
+        rc_token_info["refresh_token"] = data["refresh_token"]
+        rc_token_info["expires_at"] = time.time() + int(data["expires_in"]) - 60
+        return rc_token_info["access_token"]
+    else:
+        print("❌ Failed to refresh RingCentral token:", res.text)
+        raise Exception("RingCentral token refresh failed")
 
 def get_rc_token():
-    if rc_token_store["access_token"] and time.time() < rc_token_store["expires_at"]:
-        return rc_token_store["access_token"]
-
-    auth = 'Basic ' + b64encode(f'{client_id}:{client_secret}'.encode()).decode()
-    res = requests.post(
-        f'{platform_url}/restapi/oauth/token',
-        headers={'Authorization': auth, 'Content-Type': 'application/x-www-form-urlencoded'},
-        data={
-            'grant_type': 'refresh_token',
-            'refresh_token': rc_token_store["refresh_token"]
-        }
-    )
-    if res.status_code == 200:
-        j = res.json()
-        rc_token_store.update({
-            "access_token": j['access_token'],
-            "refresh_token": j['refresh_token'],
-            "expires_at": time.time() + int(j['expires_in']) - 60
-        })
-        return j['access_token']
-    else:
-        print("❌ RingCentral token refresh failed", res.text)
-        raise Exception("RC auth error")
+    if time.time() >= rc_token_info["expires_at"]:
+        return refresh_rc_token()
+    return rc_token_info["access_token"]
 
 def get_zoho_token():
-    global zoho_access_token, zoho_token_expires_at
-    if zoho_access_token and time.time() < zoho_token_expires_at:
-        return zoho_access_token
+    global zoho_token, zoho_token_expires_at
+    if zoho_token and time.time() < zoho_token_expires_at:
+        return zoho_token
 
     res = requests.post(
-        'https://accounts.zoho.com/oauth/v2/token',
+        "https://accounts.zoho.com/oauth/v2/token",
         data={
-            'refresh_token': zoho_refresh_token,
-            'client_id': zoho_client_id,
-            'client_secret': zoho_client_secret,
-            'grant_type': 'refresh_token'
+            "refresh_token": zoho_refresh_token,
+            "client_id": zoho_client_id,
+            "client_secret": zoho_client_secret,
+            "grant_type": "refresh_token"
         }
     )
+
     if res.status_code == 200:
         j = res.json()
-        zoho_access_token = j['access_token']
-        zoho_token_expires_at = time.time() + int(j['expires_in']) - 60
-        return zoho_access_token
+        zoho_token = j["access_token"]
+        zoho_token_expires_at = time.time() + int(j["expires_in"]) - 60
+        return zoho_token
     else:
         print("❌ Zoho token refresh failed", res.text)
-        raise Exception("Zoho auth error")
+        raise Exception("Zoho token error")
 
 @app.route('/send-sms', methods=['POST'])
 def send_sms():
     data = request.json
-    print("📥 Webhook received:", data)
+    print("📥 Incoming webhook:", data)
 
-    phone = data.get('phone')
-    name = data.get('name', 'there')
-    email = data.get('email')
-    owner = data.get('owner')
+    phone = data.get("phone")
+    name = data.get("name", "there")
+    email = data.get("email")
+    owner = data.get("owner")
 
     if not phone or not email:
-        print("❌ Missing phone or email.")
-        return jsonify({'error': 'Missing phone/email'}), 400
+        return jsonify({"error": "Missing phone or email"}), 400
 
     if owner != your_name:
-        print(f"⏭️ Lead not assigned to {your_name}, skipping.")
-        return jsonify({'skipped': 'Lead not yours'}), 200
+        print("⏭️ Lead not assigned to you.")
+        return jsonify({"skipped": "Not your lead"}), 200
 
     message = f"""Hello {name}, My name is Steven Bridge—an online specialist with Aurora.
 
@@ -101,62 +102,58 @@ I see that you’re interested in our kitchen deals. In order to better assist y
 May I know more about your kitchen project/goals?
 
 https://auroracirc.com/"""
-    print("📨 Attempting to send SMS...")
 
     try:
         rc_token = get_rc_token()
-        rc_response = requests.post(
-            f'{platform_url}/restapi/v1.0/account/~/extension/~/sms',
+        rc_res = requests.post(
+            f"{platform_url}/restapi/v1.0/account/~/extension/~/sms",
             headers={
-                'Authorization': f'Bearer {rc_token}',
-                'Content-Type': 'application/json'
+                "Authorization": f"Bearer {rc_token}",
+                "Content-Type": "application/json"
             },
             json={
-                'from': {'phoneNumber': sender_number},
-                'to': [{'phoneNumber': phone}],
-                'text': message
+                "from": {"phoneNumber": sender_number},
+                "to": [{"phoneNumber": phone}],
+                "text": message
             }
         )
-        print("📤 SMS response status:", rc_response.status_code)
-        print("📤 SMS response body:", rc_response.text)
-
-        if rc_response.status_code != 200:
-            print("❌ SMS failed:", rc_response.text)
-            return jsonify({'error': 'SMS failed'}), 403
+        if rc_res.status_code != 200:
+            print("❌ SMS send error:", rc_res.text)
+            return jsonify({"error": "SMS failed"}), 403
+        print("✅ SMS sent")
     except Exception as e:
-        print("❌ Exception sending SMS:", str(e))
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": f"RingCentral error: {str(e)}"}), 500
 
-    # Update Zoho Lead
+    # Update Zoho CRM lead status
     try:
-        zoho_token = get_zoho_token()
+        zoho_token_val = get_zoho_token()
         search = requests.get(
-            f'https://www.zohoapis.com/crm/v2/Leads/search?email={email}',
-            headers={'Authorization': f'Zoho-oauthtoken {zoho_token}'}
+            f"https://www.zohoapis.com/crm/v2/Leads/search?email={email}",
+            headers={"Authorization": f"Zoho-oauthtoken {zoho_token_val}"}
         )
-        lead = search.json().get('data', [{}])[0]
-        if not lead:
-            return jsonify({'error': 'No Zoho match'}), 404
+        records = search.json().get("data", [])
+        if not records:
+            return jsonify({"warning": "Lead not found in Zoho"}), 404
 
-        lead_id = lead['id']
+        lead_id = records[0]["id"]
         update = requests.put(
-            f'https://www.zohoapis.com/crm/v2/Leads/{lead_id}',
+            f"https://www.zohoapis.com/crm/v2/Leads/{lead_id}",
             headers={
-                'Authorization': f'Zoho-oauthtoken {zoho_token}',
-                'Content-Type': 'application/json'
+                "Authorization": f"Zoho-oauthtoken {zoho_token_val}",
+                "Content-Type": "application/json"
             },
             json={"data": [{"Lead_Status": "Attempted to Contact"}]}
         )
 
         if update.status_code == 200:
-            return jsonify({'status': 'Text sent + Zoho updated'}), 200
+            print("✅ Zoho status updated")
+            return jsonify({"status": "SMS sent & Zoho updated"}), 200
         else:
-            print("⚠️ Zoho update failed", update.text)
-            return jsonify({'warning': 'Text sent but Zoho update failed'}), 207
-
+            print("⚠️ Zoho update failed:", update.text)
+            return jsonify({"warning": "SMS sent but Zoho update failed"}), 207
     except Exception as e:
-        return jsonify({'error': 'Zoho error', 'details': str(e)}), 500
+        return jsonify({"error": f"Zoho error: {str(e)}"}), 500
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
