@@ -5,15 +5,34 @@ import os
 
 app = Flask(__name__)
 
-# Load credentials from environment variables
+# RingCentral credentials
 client_id = os.environ.get("RC_CLIENT_ID")
 client_secret = os.environ.get("RC_CLIENT_SECRET")
 jwt_token = os.environ.get("RINGCENTRAL_JWT")
-zoho_access_token = os.environ.get("ZOHO_ACCESS_TOKEN")
-
 platform_url = 'https://platform.ringcentral.com'
 sender_number = '+12014096774'
-your_name = "Steven Bridgemohan"  # Adjust if needed
+
+# Zoho credentials
+zoho_client_id = os.environ.get("ZOHO_CLIENT_ID")
+zoho_client_secret = os.environ.get("ZOHO_CLIENT_SECRET")
+zoho_refresh_token = os.environ.get("ZOHO_REFRESH_TOKEN")
+
+your_name = "Steven Bridgemohan"
+
+def get_zoho_access_token():
+    token_url = "https://accounts.zoho.com/oauth/v2/token"
+    params = {
+        'refresh_token': zoho_refresh_token,
+        'client_id': zoho_client_id,
+        'client_secret': zoho_client_secret,
+        'grant_type': 'refresh_token'
+    }
+    response = requests.post(token_url, params=params)
+    if response.status_code == 200:
+        return response.json().get('access_token')
+    else:
+        print("❌ Failed to refresh Zoho token:", response.text)
+        return None
 
 @app.route('/send-sms', methods=['POST'])
 def send_sms():
@@ -23,11 +42,11 @@ def send_sms():
     phone = data.get('phone')
     name = data.get('name', 'there')
     email = data.get('email')
+    owner = your_name  # Assume webhook is only sent for your leads
 
     if not phone or not email:
         return jsonify({'error': 'Missing phone or email'}), 400
 
-    # Build message
     message_text = f"""Hello {name}, My name is Steven Bridge—an online specialist with Aurora.
 
 I see that you’re interested in our kitchen deals. In order to better assist you:
@@ -48,7 +67,6 @@ https://auroracirc.com/"""
             'assertion': jwt_token
         }
     )
-
     access_token = auth_response.json().get('access_token')
     if not access_token:
         print("❌ RC Auth failed:", auth_response.text)
@@ -74,32 +92,30 @@ https://auroracirc.com/"""
 
     print("✅ SMS sent successfully")
 
-    # 🔍 Search lead in Zoho by email
+    # Get fresh Zoho token
+    zoho_token = get_zoho_access_token()
+    if not zoho_token:
+        return jsonify({'warning': 'SMS sent, Zoho auth failed'}), 207
+
+    # Search lead by email
     search_url = f'https://www.zohoapis.com/crm/v2/Leads/search?email={email}'
     search_response = requests.get(
         search_url,
-        headers={'Authorization': f'Zoho-oauthtoken {zoho_access_token}'}
+        headers={'Authorization': f'Zoho-oauthtoken {zoho_token}'}
     )
 
     if search_response.status_code != 200:
         print("❌ Zoho search failed:", search_response.text)
-        return jsonify({'error': 'Zoho search failed'}), 500
+        return jsonify({'warning': 'SMS sent, but Zoho search failed'}), 207
 
     records = search_response.json().get('data', [])
     if not records:
-        print("⚠️ No Zoho lead found for email:", email)
-        return jsonify({'error': 'No lead found in Zoho'}), 404
+        print("⚠️ No lead found for email:", email)
+        return jsonify({'warning': 'SMS sent, but no matching lead'}), 207
 
-    lead = records[0]
-    lead_id = lead['id']
-    lead_owner = lead.get('Owner', {}).get('name', '')
+    lead_id = records[0]['id']
 
-    # ✅ Only update if assigned to you
-    if lead_owner != your_name:
-        print(f"⏭️ Lead assigned to {lead_owner}, not {your_name}. Skipping update.")
-        return jsonify({'status': 'SMS sent, but lead not assigned to you'}), 200
-
-    # 🛠️ Update lead status in Zoho
+    # Update lead status
     update_url = f'https://www.zohoapis.com/crm/v2/Leads/{lead_id}'
     update_body = {
         "data": [
@@ -112,18 +128,19 @@ https://auroracirc.com/"""
     update_response = requests.put(
         update_url,
         headers={
-            'Authorization': f'Zoho-oauthtoken {zoho_access_token}',
+            'Authorization': f'Zoho-oauthtoken {zoho_token}',
             'Content-Type': 'application/json'
         },
         json=update_body
     )
 
     if update_response.status_code == 200:
-        print("✅ Zoho lead status updated")
-        return jsonify({'status': 'SMS sent & lead status updated'}), 200
+        print("✅ Lead status updated")
+        return jsonify({'status': 'SMS sent & lead updated'}), 200
     else:
-        print("⚠️ Lead update failed:", update_response.text)
+        print("⚠️ Update failed:", update_response.text)
         return jsonify({'warning': 'SMS sent, but Zoho update failed'}), 207
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
