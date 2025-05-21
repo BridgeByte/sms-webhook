@@ -6,27 +6,26 @@ import time
 
 app = Flask(__name__)
 
-# RingCentral environment config
+# Environment Config
 client_id = os.environ.get("RC_CLIENT_ID")
 client_secret = os.environ.get("RC_CLIENT_SECRET")
 platform_url = 'https://platform.ringcentral.com'
 sender_number = '+12014096774'
 
-# Zoho config
 zoho_client_id = os.environ.get("ZOHO_CLIENT_ID")
 zoho_client_secret = os.environ.get("ZOHO_CLIENT_SECRET")
 zoho_refresh_token = os.environ.get("ZOHO_REFRESH_TOKEN")
-zoho_access_token = None
-zoho_token_expires_at = 0
+your_name = os.environ.get("YOUR_NAME")
 
-your_name = os.environ.get("YOUR_NAME", "Steven Bridgemohan")
-
-# RC token cache
+# Token Caches
 rc_token_store = {
     "access_token": None,
     "refresh_token": os.environ.get("RC_REFRESH_TOKEN"),
     "expires_at": 0
 }
+
+zoho_access_token = None
+zoho_token_expires_at = 0
 
 def get_rc_token():
     if rc_token_store["access_token"] and time.time() < rc_token_store["expires_at"]:
@@ -36,10 +35,7 @@ def get_rc_token():
     res = requests.post(
         f'{platform_url}/restapi/oauth/token',
         headers={'Authorization': auth, 'Content-Type': 'application/x-www-form-urlencoded'},
-        data={
-            'grant_type': 'refresh_token',
-            'refresh_token': rc_token_store["refresh_token"]
-        }
+        data={'grant_type': 'refresh_token', 'refresh_token': rc_token_store["refresh_token"]}
     )
     if res.status_code == 200:
         j = res.json()
@@ -50,7 +46,7 @@ def get_rc_token():
         })
         return j['access_token']
     else:
-        print("❌ RC token refresh failed", res.text)
+        print("❌ RingCentral token refresh failed", res.text)
         raise Exception("RC auth error")
 
 def get_zoho_token():
@@ -78,31 +74,28 @@ def get_zoho_token():
 
 @app.route('/send-sms', methods=['POST'])
 def send_sms():
-    data = request.json
-    print("📥 Webhook received:", data)
-
-    phone = data.get('phone')
-    name = data.get('name', 'there')
-    email = data.get('email')
-    owner = data.get('owner')
-
-    if not phone or not email:
-        return jsonify({'error': 'Missing phone/email'}), 400
-
-    if owner != your_name:
-        return jsonify({'skipped': 'Lead not yours'}), 200
-
-    message = f"""Hello {name}, My name is Steven Bridge—an online specialist with Aurora.
-
-I see that you’re interested in our kitchen deals. In order to better assist you:
-
-May I know more about your kitchen project/goals?
-
-https://auroracirc.com/"""
-
     try:
+        data = request.json
+        print("📥 Webhook received:", data)
+
+        phone = data.get('phone')
+        name = data.get('name', 'there')
+        email = data.get('email')
+        owner = data.get('owner')
+
+        if not phone or not email:
+            print("❌ Missing phone or email.")
+            return jsonify({'error': 'Missing phone/email'}), 400
+
+        if owner != your_name:
+            print(f"⏭️ Lead not assigned to {your_name}, skipping.")
+            return jsonify({'skipped': 'Lead not yours'}), 200
+
+        print("📨 Sending SMS...")
         rc_token = get_rc_token()
-        rc_response = requests.post(
+        message = f"""Hello {name}, My name is Steven Bridge—an online specialist with Aurora.\n\nI see that you’re interested in our kitchen deals. In order to better assist you:\n\nMay I know more about your kitchen project/goals?\n\nhttps://auroracirc.com/"""
+
+        sms_response = requests.post(
             f'{platform_url}/restapi/v1.0/account/~/extension/~/sms',
             headers={
                 'Authorization': f'Bearer {rc_token}',
@@ -115,18 +108,12 @@ https://auroracirc.com/"""
             }
         )
 
-        print("📤 RC response status:", rc_response.status_code)
-        print("📤 RC response body:", rc_response.text)
+        print("📤 SMS status:", sms_response.status_code)
+        print("📤 SMS response:", sms_response.text)
 
-        if rc_response.status_code != 200:
-            return jsonify({'error': 'SMS failed', 'details': rc_response.text}), 403
+        if sms_response.status_code != 200:
+            return jsonify({'error': 'SMS failed'}), 403
 
-    except Exception as e:
-        print("❌ Exception sending SMS:", str(e))
-        return jsonify({'error': str(e)}), 500
-
-    # Update Zoho Lead
-    try:
         zoho_token = get_zoho_token()
         search = requests.get(
             f'https://www.zohoapis.com/crm/v2/Leads/search?email={email}',
@@ -146,14 +133,17 @@ https://auroracirc.com/"""
             json={"data": [{"Lead_Status": "Attempted to Contact"}]}
         )
 
+        print("📝 Zoho update status:", update.status_code)
+        print("📝 Zoho update response:", update.text)
+
         if update.status_code == 200:
-            return jsonify({'status': 'Text sent + Zoho updated'}), 200
+            return jsonify({'status': 'SMS sent + Zoho updated'}), 200
         else:
-            print("⚠️ Zoho update failed", update.text)
             return jsonify({'warning': 'Text sent but Zoho update failed'}), 207
 
     except Exception as e:
-        return jsonify({'error': 'Zoho error', 'details': str(e)}), 500
+        print("💥 Unhandled Exception:", str(e))
+        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
