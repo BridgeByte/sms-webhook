@@ -3,10 +3,11 @@ import requests
 from base64 import b64encode
 import os
 import time
+import traceback
 
 app = Flask(__name__)
 
-# RingCentral Credentials
+# RingCentral credentials from environment
 client_id = os.environ.get("RC_CLIENT_ID")
 client_secret = os.environ.get("RC_CLIENT_SECRET")
 rc_refresh_token = os.environ.get("RC_REFRESH_TOKEN")
@@ -14,14 +15,13 @@ platform_url = 'https://platform.ringcentral.com'
 sender_number = '+12014096774'
 rc_access_token = None
 
-# Zoho Credentials
+# Zoho credentials from environment
 zoho_client_id = os.environ.get("ZOHO_CLIENT_ID")
 zoho_client_secret = os.environ.get("ZOHO_CLIENT_SECRET")
 zoho_refresh_token = os.environ.get("ZOHO_REFRESH_TOKEN")
 zoho_access_token = None
 zoho_token_expires_at = 0
-
-your_name = os.environ.get("YOUR_NAME") or "Steven Bridgemohan"
+your_name = os.environ.get("YOUR_NAME", "Steven Bridgemohan")
 
 def refresh_rc_token():
     global rc_access_token, rc_refresh_token
@@ -44,9 +44,8 @@ def refresh_rc_token():
         print("✅ RC token refreshed successfully.")
         return rc_access_token
     else:
-        print("❌ RC token refresh failed:")
-        print("Status Code:", response.status_code)
-        print("Response Body:", response.text)
+        print("❌ RC token refresh failed:", response.status_code)
+        print(response.text)
         raise Exception("RC auth error")
 
 def refresh_zoho_token():
@@ -70,9 +69,8 @@ def refresh_zoho_token():
         print("✅ Zoho token refreshed successfully.")
         return zoho_access_token
     else:
-        print("❌ Zoho token refresh failed:")
-        print("Status Code:", response.status_code)
-        print("Response Body:", response.text)
+        print("❌ Zoho token refresh failed:", response.status_code)
+        print(response.text)
         raise Exception("Zoho auth error")
 
 @app.route('/send-sms', methods=['POST'])
@@ -119,6 +117,8 @@ https://auroracirc.com/"""
         if sms_response.status_code != 200:
             return jsonify({'error': 'SMS failed'}), 403
     except Exception as e:
+        print("❌ Exception sending SMS:", e)
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
     try:
@@ -146,6 +146,8 @@ https://auroracirc.com/"""
             return jsonify({'warning': 'Text sent but Zoho update failed'}), 207
 
     except Exception as e:
+        print("❌ Zoho update failed:", e)
+        traceback.print_exc()
         return jsonify({'error': 'Zoho error', 'details': str(e)}), 500
 
 if __name__ == '__main__':
