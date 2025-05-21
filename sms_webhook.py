@@ -9,11 +9,11 @@ app = Flask(__name__)
 client_id = os.environ.get("RC_CLIENT_ID")
 client_secret = os.environ.get("RC_CLIENT_SECRET")
 jwt_token = os.environ.get("RINGCENTRAL_JWT")
+zoho_access_token = os.environ.get("ZOHO_ACCESS_TOKEN")
+
 platform_url = 'https://platform.ringcentral.com'
 sender_number = '+12014096774'
-
-zoho_access_token = os.environ.get("ZOHO_ACCESS_TOKEN")
-your_name = "Steven Bridgemohan"  # Only send/update if this is the lead owner
+your_name = "Steven Bridgemohan"  # Adjust if needed
 
 @app.route('/send-sms', methods=['POST'])
 def send_sms():
@@ -23,15 +23,11 @@ def send_sms():
     phone = data.get('phone')
     name = data.get('name', 'there')
     email = data.get('email')
-    owner = data.get('owner')
 
     if not phone or not email:
         return jsonify({'error': 'Missing phone or email'}), 400
 
-    if owner != your_name:
-        print(f"⏭️ Lead is not assigned to {your_name}, skipping.")
-        return jsonify({'skipped': 'Lead not assigned to you'}), 200
-
+    # Build message
     message_text = f"""Hello {name}, My name is Steven Bridge—an online specialist with Aurora.
 
 I see that you’re interested in our kitchen deals. In order to better assist you:
@@ -40,7 +36,7 @@ May I know more about your kitchen project/goals?
 
 https://auroracirc.com/"""
 
-    # Authenticate RingCentral
+    # Authenticate with RingCentral
     auth_response = requests.post(
         f'{platform_url}/restapi/oauth/token',
         headers={
@@ -78,7 +74,7 @@ https://auroracirc.com/"""
 
     print("✅ SMS sent successfully")
 
-    # Search Zoho lead by email
+    # 🔍 Search lead in Zoho by email
     search_url = f'https://www.zohoapis.com/crm/v2/Leads/search?email={email}'
     search_response = requests.get(
         search_url,
@@ -94,9 +90,16 @@ https://auroracirc.com/"""
         print("⚠️ No Zoho lead found for email:", email)
         return jsonify({'error': 'No lead found in Zoho'}), 404
 
-    lead_id = records[0]['id']
+    lead = records[0]
+    lead_id = lead['id']
+    lead_owner = lead.get('Owner', {}).get('name', '')
 
-    # Update lead status to "Attempted to Contact"
+    # ✅ Only update if assigned to you
+    if lead_owner != your_name:
+        print(f"⏭️ Lead assigned to {lead_owner}, not {your_name}. Skipping update.")
+        return jsonify({'status': 'SMS sent, but lead not assigned to you'}), 200
+
+    # 🛠️ Update lead status in Zoho
     update_url = f'https://www.zohoapis.com/crm/v2/Leads/{lead_id}'
     update_body = {
         "data": [
@@ -119,7 +122,7 @@ https://auroracirc.com/"""
         print("✅ Zoho lead status updated")
         return jsonify({'status': 'SMS sent & lead status updated'}), 200
     else:
-        print("⚠️ Zoho update failed:", update_response.text)
+        print("⚠️ Lead update failed:", update_response.text)
         return jsonify({'warning': 'SMS sent, but Zoho update failed'}), 207
 
 if __name__ == '__main__':
