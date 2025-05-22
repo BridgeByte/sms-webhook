@@ -104,6 +104,7 @@ https://auroracirc.com/"""
 
     try:
         rc_token = refresh_rc_token()
+        print("📡 Attempting to send SMS to:", phone)
         sms_response = requests.post(
             f'{platform_url}/restapi/v1.0/account/~/extension/~/sms',
             headers={
