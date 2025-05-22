@@ -53,13 +53,8 @@ def message_new_leads_and_update_zoho():
     zoho_headers = {
         "Authorization": f"Zoho-oauthtoken {zoho_token}"
     }
-    params = {
-        "sort_by": "Created_Time",
-        "sort_order": "desc",
-        "per_page": 1
-    }
 
-    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
+    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers)
     leads = zoho_response.json().get("data", [])
 
     print("📦 Raw Zoho lead data:", leads, flush=True)
@@ -70,6 +65,7 @@ def message_new_leads_and_update_zoho():
         "Authorization": f"Bearer {rc_token}",
         "Content-Type": "application/json"
     }
+
     sender_number = os.environ["RC_FROM_NUMBER"]
 
     for lead in leads:
