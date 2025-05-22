@@ -99,6 +99,8 @@ def message_new_leads_and_update_zoho():
                 }
                 requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
 
+import traceback
+
 @app.route("/message_new_leads", methods=["POST"])
 def handle_webhook():
     try:
@@ -106,6 +108,7 @@ def handle_webhook():
         return jsonify({"success": True, "message": "New leads messaged and updated."}), 200
     except Exception as e:
         print("❌ Error:", e)
+        traceback.print_exc()  # 👈 full error with line numbers
         return jsonify({"success": False, "error": str(e)}), 500
 
 
