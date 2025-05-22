@@ -108,7 +108,11 @@ def handle_webhook():
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
+    print("🚀 Flask app started")
     app.run(debug=True)
+
+app = app
+
 
 app = app
 
