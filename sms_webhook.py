@@ -65,6 +65,8 @@ def message_new_leads_and_update_zoho():
     }
     zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
     leads = zoho_response.json().get("data", [])
+    print("📦 Raw Zoho lead data:", leads)
+    print("🔢 Number of leads returned:", len(leads))
 
     rc_token = get_ringcentral_token()
     rc_headers = {
