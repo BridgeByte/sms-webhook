@@ -105,7 +105,9 @@ def handle_webhook():
         message_new_leads_and_update_zoho()
         return jsonify({"success": True, "message": "New leads messaged and updated."}), 200
     except Exception as e:
+        print("❌ Error:", e)
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 import os
 
