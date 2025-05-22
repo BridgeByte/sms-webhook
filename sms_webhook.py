@@ -80,8 +80,12 @@ def message_new_leads_and_update_zoho():
 
         if phone:
             message = (
-                f"Hi {name}, this is Steven from Aurora. I saw your interest in our kitchen deals — "
-                "can you share more about your project? Timeline, style, etc. I’d love to help."
+                f"Hello {name},\n\n"
+                "I’m Steven Bridge, an online specialist with Aurora.\n\n"
+                "I saw your interest in our kitchen listings — I’d love to help you find the perfect match.\n\n"
+                "To better assist, can you share a bit about your project? Style, layout, timeline — anything you’re aiming for.\n\n"
+                "Here’s our catalog for quick reference: www.auroracirc.com\n\n"
+                "Schedule a call: https://crm.zoho.com/bookings/30minutesmeeting?rid=3a8797334b8eeb0c2e8307050c50ed050800079fc6b8ec749e969fa4a35b69c3c92eea5b30c8b3bd6b03ff14a82a87bfgid9bbeef68668955f8615e7755cd1286847d3ce2e658291f6b9afc77df15a363d5"
             )
             sms_payload = {
                 "from": {"phoneNumber": sender_number},
