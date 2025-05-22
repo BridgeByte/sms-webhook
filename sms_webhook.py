@@ -107,12 +107,11 @@ def handle_webhook():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+import os
+
 if __name__ == "__main__":
-    print("🚀 Flask app started")
-    app.run(debug=True)
-
-app = app
-
+    port = int(os.environ.get("PORT", 5000))  # use PORT env var if set
+    app.run(host="0.0.0.0", port=port, debug=True)
 
 app = app
 
