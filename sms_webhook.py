@@ -54,9 +54,11 @@ def message_new_leads_and_update_zoho():
         "Authorization": f"Zoho-oauthtoken {zoho_token}"
     }
     params = {
+        "sort_by": "Created_Time",
         "sort_order": "desc",
         "per_page": 1
     }
+
     zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
     leads = zoho_response.json().get("data", [])
 
