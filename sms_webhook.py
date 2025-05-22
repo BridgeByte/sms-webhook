@@ -54,7 +54,12 @@ def message_new_leads_and_update_zoho():
         "Authorization": f"Zoho-oauthtoken {zoho_token}"
     }
 
-    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers)
+    today = datetime.now().strftime("%Y-%m-%d")
+    params = {
+        "criteria": f"(Created_Time:equals:{today}) and (Lead_Status:is_empty:true)"
+    }
+
+    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
     leads = zoho_response.json().get("data", [])
 
     print("📦 Raw Zoho lead data:", leads, flush=True)
