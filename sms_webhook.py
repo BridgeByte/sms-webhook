@@ -68,36 +68,43 @@ def message_new_leads_and_update_zoho():
         "Content-Type": "application/json"
     }
     sender_number = os.environ["RC_FROM_NUMBER"]
+for lead in leads:
+    phone = lead.get("Phone")
+    name = lead.get("First_Name", "there")
+    lead_id = lead.get("id")
 
-    for lead in leads:
-        phone = lead.get("Phone")
-        name = lead.get("First_Name", "there")
-        lead_id = lead.get("id")
+    if phone:
+        message = (
+            f"Hi {name}, this is Steven from Aurora. I saw your interest in our kitchen deals — "
+            "can you share more about your project? Timeline, style, etc. I’d love to help."
+        )
+        sms_payload = {
+            "from": {"phoneNumber": sender_number},
+            "to": [{"phoneNumber": phone}],
+            "text": message
+        }
 
-        if phone:
-            message = (
-                f"Hi {name}, this is Steven from Aurora. I saw your interest in our kitchen deals — "
-                "can you share more about your project? Timeline, style, etc. I’d love to help."
-            )
-            sms_payload = {
-                "from": {"phoneNumber": sender_number},
-                "to": [{"phoneNumber": phone}],
-                "text": message
+        print("📤 Attempting to send SMS to:", phone)
+        print("📨 Message text:", message)
+        print("📄 Payload:", sms_payload)
+
+        sms_response = requests.post(
+            "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
+            headers=rc_headers,
+            json=sms_payload
+        )
+
+        print("📬 RingCentral SMS API response:", sms_response.status_code, sms_response.text)
+
+        if sms_response.status_code == 200:
+            update_data = {
+                "data": [{
+                    "id": lead_id,
+                    "Lead_Status": "Attempted to Contact"
+                }]
             }
-            sms_response = requests.post(
-                "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
-                headers=rc_headers,
-                json=sms_payload
-            )
+            requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
 
-            if sms_response.status_code == 200:
-                update_data = {
-                    "data": [{
-                        "id": lead_id,
-                        "Lead_Status": "Attempted to Contact"
-                    }]
-                }
-                requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
 
 import traceback
 
