@@ -6,18 +6,16 @@ import traceback
 
 app = Flask(__name__)
 
-# --- Health Check ---
 @app.route("/", methods=["GET"])
 def health_check():
     return "✅ Flask is running"
 
-# --- In-memory cache for RingCentral token ---
+# --- RingCentral Token Cache ---
 ringcentral_token_data = {
     "access_token": None,
     "expires_at": None
 }
 
-# --- RingCentral Token (JWT) ---
 def get_ringcentral_token():
     if ringcentral_token_data["access_token"] and datetime.now() < ringcentral_token_data["expires_at"]:
         return ringcentral_token_data["access_token"]
@@ -38,7 +36,6 @@ def get_ringcentral_token():
     ringcentral_token_data["expires_at"] = datetime.now() + timedelta(seconds=token_json["expires_in"] - 60)
     return ringcentral_token_data["access_token"]
 
-# --- Zoho Access Token ---
 def get_zoho_access_token():
     url = "https://accounts.zoho.com/oauth/v2/token"
     data = {
@@ -51,11 +48,8 @@ def get_zoho_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
-# --- Main Logic ---
 def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
-    today = datetime.now().strftime("%Y-%m-%d")
-
     zoho_headers = {
         "Authorization": f"Zoho-oauthtoken {zoho_token}"
     }
@@ -65,8 +59,9 @@ def message_new_leads_and_update_zoho():
     }
     zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
     leads = zoho_response.json().get("data", [])
-    print("📦 Raw Zoho lead data:", leads)
-    print("🔢 Number of leads returned:", len(leads))
+
+    print("📦 Raw Zoho lead data:", leads, flush=True)
+    print("🔢 Number of leads returned:", len(leads), flush=True)
 
     rc_token = get_ringcentral_token()
     rc_headers = {
@@ -91,9 +86,9 @@ def message_new_leads_and_update_zoho():
                 "text": message
             }
 
-            print("\U0001f4e4 Attempting to send SMS to:", phone)
-            print("\U0001f4e8 Message text:", message)
-            print("\U0001f4c4 Payload:", sms_payload)
+            print("📤 Attempting to send SMS to:", phone, flush=True)
+            print("📨 Message text:", message, flush=True)
+            print("📄 Payload:", sms_payload, flush=True)
 
             sms_response = requests.post(
                 "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
@@ -101,7 +96,7 @@ def message_new_leads_and_update_zoho():
                 json=sms_payload
             )
 
-            print("\U0001f4ec RingCentral SMS API response:", sms_response.status_code, sms_response.text)
+            print("📬 RingCentral SMS API response:", sms_response.status_code, sms_response.text, flush=True)
 
             if sms_response.status_code == 200:
                 update_data = {
@@ -112,18 +107,16 @@ def message_new_leads_and_update_zoho():
                 }
                 requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
 
-# --- Webhook Trigger ---
 @app.route("/message_new_leads", methods=["POST"])
 def handle_webhook():
     try:
         message_new_leads_and_update_zoho()
         return jsonify({"success": True, "message": "New leads messaged and updated."}), 200
     except Exception as e:
-        print("❌ Error:", e)
+        print("❌ Error:", e, flush=True)
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-# --- Entry Point ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
