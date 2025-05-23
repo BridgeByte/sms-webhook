@@ -61,10 +61,11 @@ def message_new_leads_and_update_zoho():
 
     # Just filter by Lead_Status being empty
     params = {
-        "criteria": "(Lead_Status:is_empty:true)",
-        "page": 1,
-        "per_page": 10
-    }
+       "criteria": "(Lead_Status:equals:)",
+       "page": 1,
+       "per_page": 10
+     }
+
 
     zoho_response = requests.get(
         "https://www.zohoapis.com/crm/v2/Leads/search",
