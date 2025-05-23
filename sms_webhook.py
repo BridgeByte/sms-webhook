@@ -3,6 +3,7 @@ import requests
 import os
 from datetime import datetime, timedelta
 import pytz
+import traceback
 
 app = Flask(__name__)
 
@@ -10,7 +11,7 @@ app = Flask(__name__)
 def health_check():
     return "✅ Flask is running"
 
-# --- RingCentral Token via JWT ---
+# --- RingCentral JWT Token Management ---
 ringcentral_token_data = {
     "access_token": None,
     "expires_at": None
@@ -29,9 +30,13 @@ def get_ringcentral_token():
     }
 
     response = requests.post(url, headers=headers, auth=auth, data=data)
-    response.raise_for_status()
-    token_json = response.json()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print("❌ RingCentral token error:", response.status_code, response.text, flush=True)
+        raise
 
+    token_json = response.json()
     ringcentral_token_data["access_token"] = token_json["access_token"]
     ringcentral_token_data["expires_at"] = datetime.now() + timedelta(seconds=token_json["expires_in"] - 60)
     return ringcentral_token_data["access_token"]
@@ -49,14 +54,12 @@ def get_zoho_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
-# --- Main Function ---
+# --- Main Lead Messaging Logic ---
 def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
-    zoho_headers = {
-        "Authorization": f"Zoho-oauthtoken {zoho_token}"
-    }
+    zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
 
-    # Align with America/New_York timezone
+    # Use Eastern Time to match Zoho CRM settings
     eastern = pytz.timezone("America/New_York")
     now = datetime.now(eastern)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -64,66 +67,61 @@ def message_new_leads_and_update_zoho():
 
     created_from = start_of_day.strftime("%Y-%m-%dT%H:%M:%S")
     created_to = end_of_day.strftime("%Y-%m-%dT%H:%M:%S")
-
     params = {
         "criteria": f"(Created_Time:between:{created_from},{created_to}) and (Lead_Status:is_empty:true)"
     }
-    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
+
+    zoho_response = requests.get(
+        "https://www.zohoapis.com/crm/v2/Leads/search",
+        headers=zoho_headers,
+        params=params
+    )
     leads = zoho_response.json().get("data", [])
 
-    print("\U0001F4E6 Raw Zoho lead data:", leads, flush=True)
-    print("\U0001F522 Number of leads returned:", len(leads), flush=True)
-
+    print("📦 Raw Zoho lead data:", leads, flush=True)
+    print("🔢 Number of leads returned:", len(leads), flush=True)
     if not leads:
         return
 
     rc_token = get_ringcentral_token()
-    rc_headers = {
-        "Authorization": f"Bearer {rc_token}",
-        "Content-Type": "application/json"
-    }
+    rc_headers = {"Authorization": f"Bearer {rc_token}", "Content-Type": "application/json"}
     sender_number = os.environ["RC_FROM_NUMBER"]
 
     for lead in leads:
         phone = lead.get("Phone")
         name = lead.get("First_Name", "there")
         lead_id = lead.get("id")
+        if not phone:
+            continue
 
-        if phone:
-            message = (
-                f"Hello {name},\n\n"
-                f"I’m Steven Bridge, an online specialist with Aurora.\n\n"
-                f"I saw your interest in our kitchen listings — I’d love to help you find the perfect match.\n\n"
-                f"To better assist, can you share a bit about your project? Style, layout, timeline — anything you’re aiming for.\n\n"
-                f"Here’s our catalog for quick reference: www.auroracirc.com\n\n"
-                f"Schedule a call:\nhttps://crm.zoho.com/bookings/30minutesmeeting?..."
-            )
+        message = (
+            f"Hello {name},\n\n"
+            f"I’m Steven Bridge, an online specialist with Aurora.\n\n"
+            f"I saw your interest in our kitchen listings — I’d love to help you find the perfect match.\n\n"
+            f"To better assist, can you share a bit about your project? Style, layout, timeline — anything you’re aiming for.\n\n"
+            f"Here’s our catalog for quick reference: www.auroracirc.com\n\n"
+            f"Schedule a call:\nhttps://crm.zoho.com/bookings/30minutesmeeting?rid=3a8797334b8eeb0c2e8307050c50ed050800079fc6b8ec749e969fa4a35b69c3c92eea5b30c8b3bd6b03ff14a82a87bfgid9bbeef68668955f8615e7755cd1286847d3ce2e658291f6b9afc77df15a363d5"
+        )
+        sms_payload = {
+            "from": {"phoneNumber": sender_number},
+            "to": [{"phoneNumber": phone}],
+            "text": message
+        }
 
-            sms_payload = {
-                "from": {"phoneNumber": sender_number},
-                "to": [{"phoneNumber": phone}],
-                "text": message
-            }
+        print("📤 Attempting to send SMS to:", phone, flush=True)
+        print("📨 Message text:", message, flush=True)
+        print("📄 Payload:", sms_payload, flush=True)
 
-            print("\U0001F4E4 Attempting to send SMS to:", phone, flush=True)
-            print("\U0001F4E8 Message text:", message, flush=True)
+        sms_response = requests.post(
+            "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
+            headers=rc_headers,
+            json=sms_payload
+        )
+        print("📬 RingCentral SMS API response:", sms_response.status_code, sms_response.text, flush=True)
 
-            sms_response = requests.post(
-                "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
-                headers=rc_headers,
-                json=sms_payload
-            )
-
-            print("\U0001F4EC RingCentral SMS response:", sms_response.status_code, sms_response.text, flush=True)
-
-            if sms_response.status_code == 200:
-                update_data = {
-                    "data": [{
-                        "id": lead_id,
-                        "Lead_Status": "Attempted to Contact"
-                    }]
-                }
-                requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
+        if sms_response.status_code == 200:
+            update_data = {"data": [{"id": lead_id, "Lead_Status": "Attempted to Contact"}]}
+            requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
 
 @app.route("/message_new_leads", methods=["POST"])
 def handle_webhook():
@@ -131,8 +129,7 @@ def handle_webhook():
         message_new_leads_and_update_zoho()
         return jsonify({"success": True, "message": "New leads messaged and updated."}), 200
     except Exception as e:
-        import traceback
-        print("\u274C Error:", e, flush=True)
+        print("❌ Error:", e, flush=True)
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
