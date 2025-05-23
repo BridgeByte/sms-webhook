@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import requests
 import os
 from datetime import datetime, timedelta
-import pytz
 import traceback
 
 app = Flask(__name__)
@@ -18,6 +17,8 @@ ringcentral_token_data = {
 }
 
 def get_ringcentral_token():
+    from datetime import datetime, timedelta
+
     if ringcentral_token_data["access_token"] and datetime.now() < ringcentral_token_data["expires_at"]:
         return ringcentral_token_data["access_token"]
 
@@ -59,32 +60,28 @@ def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
 
-    # Just filter by Lead_Status being empty
-    params = {
-       "criteria": "(Lead_Status:equals:)",
-       "page": 1,
-       "per_page": 10
-     }
-
-
+    # Fetch first page of leads
+    params = {"page": 1, "per_page": 10}
     zoho_response = requests.get(
-        "https://www.zohoapis.com/crm/v2/Leads/search",
+        "https://www.zohoapis.com/crm/v2/Leads",
         headers=zoho_headers,
         params=params
     )
     print("🔍 Zoho response status:", zoho_response.status_code, flush=True)
     print("🔍 Zoho response body:", zoho_response.text, flush=True)
 
-    leads = zoho_response.json().get("data", [])
-    print("📦 Raw Zoho lead data:", leads, flush=True)
-    print("🔢 Number of leads returned:", len(leads), flush=True)
+    all_leads = zoho_response.json().get("data", [])
+    # Filter in Python for empty Lead_Status
+    leads = [lead for lead in all_leads if not lead.get("Lead_Status")]
 
+    print("📦 Filtered leads:", leads, flush=True)
+    print("🔢 Number of leads to message:", len(leads), flush=True)
     if not leads:
         return
 
     rc_token = get_ringcentral_token()
     rc_headers = {"Authorization": f"Bearer {rc_token}", "Content-Type": "application/json"}
-    sender_number = os.environ["RC_FROM_NUMBER"]
+    sender_number = os.environ.get("RC_FROM_NUMBER")
 
     for lead in leads:
         phone = lead.get("Phone")
@@ -101,11 +98,7 @@ def message_new_leads_and_update_zoho():
             f"Here’s our catalog for quick reference: www.auroracirc.com\n\n"
             f"Schedule a call:\nhttps://crm.zoho.com/bookings/30minutesmeeting?rid=3a8797334b8eeb0c2e8307050c50ed050800079fc6b8ec749e969fa4a35b69c3c92eea5b30c8b3bd6b03ff14a82a87bfgid9bbeef68668955f8615e7755cd1286847d3ce2e658291f6b9afc77df15a363d5"
         )
-        sms_payload = {
-            "from": {"phoneNumber": sender_number},
-            "to": [{"phoneNumber": phone}],
-            "text": message
-        }
+        sms_payload = {"from": {"phoneNumber": sender_number}, "to": [{"phoneNumber": phone}], "text": message}
 
         print("📤 Attempting to send SMS to:", phone, flush=True)
         print("📨 Message text:", message, flush=True)
