@@ -65,8 +65,9 @@ def message_new_leads_and_update_zoho():
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    created_from = start_of_day.strftime("%Y-%m-%dT%H:%M:%S")
-    created_to = end_of_day.strftime("%Y-%m-%dT%H:%M:%S")
+    # Use ISO format with timezone offset for Zoho
+    created_from = start_of_day.isoformat()
+    created_to = end_of_day.isoformat()
     params = {
         "criteria": f"(Created_Time:between:{created_from},{created_to}) and (Lead_Status:is_empty:true)"
     }
@@ -76,10 +77,14 @@ def message_new_leads_and_update_zoho():
         headers=zoho_headers,
         params=params
     )
-    leads = zoho_response.json().get("data", [])
+    # Debug Zoho response
+    print("🔍 Zoho response status:", zoho_response.status_code, flush=True)
+    print("🔍 Zoho response body:", zoho_response.text, flush=True)
 
+    leads = zoho_response.json().get("data", [])
     print("📦 Raw Zoho lead data:", leads, flush=True)
     print("🔢 Number of leads returned:", len(leads), flush=True)
+
     if not leads:
         return
 
