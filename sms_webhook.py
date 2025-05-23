@@ -59,17 +59,11 @@ def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
 
-    # Use Eastern Time to match Zoho CRM settings
-    eastern = pytz.timezone("America/New_York")
-    now = datetime.now(eastern)
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    # Use ISO format with timezone offset for Zoho
-    created_from = start_of_day.isoformat()
-    created_to = end_of_day.isoformat()
+    # Just filter by Lead_Status being empty
     params = {
-        "criteria": f"(Created_Time:between:{created_from},{created_to}) and (Lead_Status:is_empty:true)"
+        "criteria": "(Lead_Status:is_empty:true)",
+        "page": 1,
+        "per_page": 10
     }
 
     zoho_response = requests.get(
@@ -77,7 +71,6 @@ def message_new_leads_and_update_zoho():
         headers=zoho_headers,
         params=params
     )
-    # Debug Zoho response
     print("🔍 Zoho response status:", zoho_response.status_code, flush=True)
     print("🔍 Zoho response body:", zoho_response.text, flush=True)
 
