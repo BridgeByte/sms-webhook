@@ -43,17 +43,16 @@ def message_new_leads_and_update_zoho():
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
 
     params = {
-        "criteria": "(Lead_Status:equals:)",
         "page": 1,
-        "per_page": 100
+        "per_page": 200
     }
-    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
-    print("\U0001F50D Zoho response status:", zoho_response.status_code, flush=True)
-    print("\U0001F50D Zoho response body:", zoho_response.text, flush=True)
+    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, params=params)
+    print("Zoho response status:", zoho_response.status_code, flush=True)
+    print("Zoho response body:", zoho_response.text, flush=True)
 
     leads = zoho_response.json().get("data", [])
-    print("\ud83d\udce6 Raw Zoho lead data:", leads, flush=True)
-    print("\ud83d\udd22 Number of leads returned:", len(leads), flush=True)
+    print("Raw Zoho lead data:", leads, flush=True)
+    print("Number of leads returned:", len(leads), flush=True)
 
     rc_token = get_ringcentral_token()
     rc_headers = {
@@ -64,13 +63,16 @@ def message_new_leads_and_update_zoho():
     sender_number = os.environ["RC_FROM_NUMBER"]
 
     for lead in leads:
+        if lead.get("Lead_Status"):
+            continue
+
         phone_raw = lead.get("Phone")
         name = lead.get("First_Name", "there")
         lead_id = lead.get("id")
 
         phone = normalize_phone(phone_raw)
         if not phone:
-            print(f"❌ Skipping invalid phone number: {phone_raw}", flush=True)
+            print(f"Skipping invalid phone number: {phone_raw}", flush=True)
             continue
 
         message = (
@@ -88,15 +90,14 @@ def message_new_leads_and_update_zoho():
             "text": message
         }
 
-        print(f"\U0001f4e4 Sending to: {phone} | Name: {name}", flush=True)
-        print("Payload:", payload, flush=True)
+        print(f"Sending to: {phone} | Name: {name}", flush=True)
 
         sms_response = requests.post(
             "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
             headers=rc_headers,
             json=payload
         )
-        print("\ud83d\udce9 SMS response:", sms_response.status_code, sms_response.text, flush=True)
+        print("SMS response:", sms_response.status_code, sms_response.text, flush=True)
 
         if sms_response.status_code == 200:
             update = {
@@ -114,7 +115,7 @@ def run():
         message_new_leads_and_update_zoho()
         return jsonify({"success": True}), 200
     except Exception as e:
-        print("❌ Error:", e, flush=True)
+        print("Error:", e, flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
