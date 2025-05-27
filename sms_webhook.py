@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import re
+import time  # ⏱ Prevent rate-limiting
 
 app = Flask(__name__)
 
@@ -20,7 +21,7 @@ def get_zoho_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
-# 🔐 Get RingCentral token (JWT flow)
+# 🔐 Get RingCentral access token (JWT)
 ringcentral_token_data = {"access_token": None}
 
 def get_ringcentral_token():
@@ -41,7 +42,7 @@ def get_ringcentral_token():
     ringcentral_token_data["access_token"] = token_json["access_token"]
     return token_json["access_token"]
 
-# ☎️ Format phone numbers
+# ☎️ Format phone number
 def format_phone_number(phone):
     digits = re.sub(r"\D", "", phone or "")
     if digits.startswith("1") and len(digits) == 11:
@@ -112,6 +113,8 @@ def message_new_leads_and_update_zoho():
             )
             print("✅ Lead status updated:", update_response.status_code)
 
+        time.sleep(1.1)  # ⏱ Prevent rate-limiting
+
 # 📩 Message all deals
 def message_all_deals():
     zoho_token = get_zoho_access_token()
@@ -135,7 +138,6 @@ def message_all_deals():
     for deal in deals:
         contact_ref = deal.get("Contact_Name", {})
         contact_id = contact_ref.get("id")
-        name = contact_ref.get("name") or "there"
 
         if not contact_id:
             continue
@@ -146,6 +148,7 @@ def message_all_deals():
         )
         contact_data = contact_response.json().get("data", [{}])[0]
         phone = format_phone_number(contact_data.get("Phone"))
+        name = contact_data.get("First_Name") or "there"
 
         if not phone:
             print(f"❌ Skipping deal '{deal.get('Deal_Name')}' — No phone number found.")
@@ -173,6 +176,8 @@ def message_all_deals():
             json=sms_payload
         )
         print("📬 SMS status:", sms_response.status_code, sms_response.text)
+
+        time.sleep(1.1)  # ⏱ Prevent rate-limiting
 
 # 🌐 Routes
 @app.route("/message_new_leads", methods=["POST"])
