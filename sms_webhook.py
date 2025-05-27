@@ -1,122 +1,95 @@
 import os
-import re
 import requests
 from flask import Flask, request, jsonify
-from datetime import datetime
 
 app = Flask(__name__)
 
-def normalize_phone(phone):
-    digits = re.sub(r"\D", "", phone)
-    if len(digits) == 11 and digits.startswith("1"):
-        return f"+{digits}"
-    elif len(digits) == 10:
-        return f"+1{digits}"
-    else:
-        return None
-
+# 🔐 Auth functions
 def get_zoho_access_token():
-    response = requests.post(
-        "https://accounts.zoho.com/oauth/v2/token",
-        data={
-            "refresh_token": os.environ["ZOHO_REFRESH_TOKEN"],
-            "client_id": os.environ["ZOHO_CLIENT_ID"],
-            "client_secret": os.environ["ZOHO_CLIENT_SECRET"],
-            "grant_type": "refresh_token"
-        }
-    )
-    response.raise_for_status()
-    return response.json()["access_token"]
+    return os.environ["ZOHO_ACCESS_TOKEN"]
 
 def get_ringcentral_token():
-    response = requests.post(
-        "https://platform.ringcentral.com/restapi/oauth/token",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        auth=(os.environ['RC_CLIENT_ID'], os.environ['RC_CLIENT_SECRET']),
-        data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": os.environ['RC_JWT']}
-    )
+    url = "https://platform.ringcentral.com/restapi/oauth/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        "assertion": os.environ["RC_JWT"]
+    }
+    auth = (os.environ["RC_CLIENT_ID"], os.environ["RC_CLIENT_SECRET"])
+    response = requests.post(url, headers=headers, data=data, auth=auth)
     response.raise_for_status()
     return response.json()["access_token"]
 
-def message_new_leads_and_update_zoho():
-    zoho_token = get_zoho_access_token()
-    zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
+# 📲 SMS + Zoho update
+@app.route("/message_new_leads", methods=["POST"])
+def handle_webhook():
+    try:
+        data = request.get_json()
+        phone = data.get("phone")
+        name = data.get("name", "there")
+        email = data.get("email")
 
-    params = {
-        "page": 1,
-        "per_page": 200
-    }
-    zoho_response = requests.get("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, params=params)
-    print("Zoho response status:", zoho_response.status_code, flush=True)
-    print("Zoho response body:", zoho_response.text, flush=True)
+        # 🛡️ Get tokens
+        zoho_token = get_zoho_access_token()
+        rc_token = get_ringcentral_token()
 
-    leads = zoho_response.json().get("data", [])
-    print("Raw Zoho lead data:", leads, flush=True)
-    print("Number of leads returned:", len(leads), flush=True)
+        # 🔎 Lookup lead ID by email (or fallback to phone)
+        zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
+        lead_id = None
+        if email:
+            params = {"criteria": f"(Email:equals:{email})"}
+        elif phone:
+            params = {"criteria": f"(Phone:equals:{phone})"}
+        else:
+            return jsonify({"success": False, "error": "Missing phone/email"}), 400
 
-    rc_token = get_ringcentral_token()
-    rc_headers = {
-        "Authorization": f"Bearer {rc_token}",
-        "Content-Type": "application/json"
-    }
+        lookup = requests.get("https://www.zohoapis.com/crm/v2/Leads/search", headers=zoho_headers, params=params)
+        if lookup.status_code == 200 and lookup.json().get("data"):
+            lead_id = lookup.json()["data"][0]["id"]
+        else:
+            return jsonify({"success": False, "error": "Lead not found in Zoho."}), 404
 
-    sender_number = os.environ["RC_FROM_NUMBER"]
-
-    for lead in leads:
-        if lead.get("Lead_Status"):
-            continue
-
-        phone_raw = lead.get("Phone")
-        name = lead.get("First_Name", "there")
-        lead_id = lead.get("id")
-
-        phone = normalize_phone(phone_raw)
-        if not phone:
-            print(f"Skipping invalid phone number: {phone_raw}", flush=True)
-            continue
-
+        # 📤 Send SMS
+        rc_headers = {
+            "Authorization": f"Bearer {rc_token}",
+            "Content-Type": "application/json"
+        }
+        sender_number = os.environ["RC_FROM_NUMBER"]
         message = (
             f"Hello {name},\n\n"
             "I’m Steven Bridge, an online specialist with Aurora.\n\n"
             "I saw your interest in our kitchen listings — I’d love to help you find the perfect match.\n\n"
             "To better assist, can you share a bit about your project? Style, layout, timeline — anything you’re aiming for.\n\n"
-            "Here’s our catalog for quick reference: www.auroracirc.com\n\n"
-            "Schedule a call: https://crm.zoho.com/bookings/30minutesmeeting?rid=..."
+            "Here’s our catalog: www.auroracirc.com\n"
+            "Schedule a call: https://crm.zoho.com/bookings/30minutesmeeting?..."
         )
-
-        payload = {
+        sms_payload = {
             "from": {"phoneNumber": sender_number},
             "to": [{"phoneNumber": phone}],
             "text": message
         }
-
-        print(f"Sending to: {phone} | Name: {name}", flush=True)
-
         sms_response = requests.post(
             "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
             headers=rc_headers,
-            json=payload
+            json=sms_payload
         )
-        print("SMS response:", sms_response.status_code, sms_response.text, flush=True)
 
+        # ✅ Update lead status
         if sms_response.status_code == 200:
-            update = {
-                "data": [{"id": lead_id, "Lead_Status": "Attempted to Contact"}]
+            update_data = {
+                "data": [{
+                    "id": lead_id,
+                    "Lead_Status": "Attempted to Contact"
+                }]
             }
-            requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update)
+            requests.put("https://www.zohoapis.com/crm/v2/Leads", headers=zoho_headers, json=update_data)
 
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ SMS Webhook is Live"
-
-@app.route("/message_new_leads", methods=["POST"])
-def run():
-    try:
-        message_new_leads_and_update_zoho()
         return jsonify({"success": True}), 200
+
     except Exception as e:
-        print("Error:", e, flush=True)
+        print("❌ Error:", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
