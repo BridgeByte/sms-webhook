@@ -6,12 +6,10 @@ import re
 
 app = Flask(__name__)
 
-# Health check route
 @app.route("/", methods=["GET"])
 def index():
     return "✅ Flask is running"
 
-# Get Zoho access token using refresh token
 def get_zoho_access_token():
     response = requests.post("https://accounts.zoho.com/oauth/v2/token", data={
         "refresh_token": os.environ["ZOHO_REFRESH_TOKEN"],
@@ -22,7 +20,6 @@ def get_zoho_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
-# Get RingCentral access token using JWT
 ringcentral_token_data = {"access_token": None, "expires_at": None}
 
 def get_ringcentral_token():
@@ -44,11 +41,15 @@ def get_ringcentral_token():
     ringcentral_token_data["access_token"] = token_json["access_token"]
     return token_json["access_token"]
 
-# Format phone number to just digits
+# ✅ New formatting function
 def format_phone_number(phone):
-    return re.sub(r"\D", "", phone or "")
+    digits = re.sub(r"\D", "", phone or "")
+    if digits.startswith("1") and len(digits) == 11:
+        return f"+{digits}"
+    elif len(digits) == 10:
+        return f"+1{digits}"
+    return None
 
-# Main function: find leads, send SMS, update Zoho
 def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
@@ -91,7 +92,7 @@ def message_new_leads_and_update_zoho():
 
         sms_payload = {
             "from": {"phoneNumber": sender_number},
-            "to": [{"phoneNumber": f"+1{phone}"}],
+            "to": [{"phoneNumber": phone}],  # ✅ Already includes +1
             "text": message
         }
 
@@ -114,7 +115,6 @@ def message_new_leads_and_update_zoho():
             )
             print("✅ Zoho status update response:", update_response.status_code)
 
-# POST endpoint
 @app.route("/message_new_leads", methods=["POST"])
 def handle_webhook():
     try:
@@ -124,7 +124,6 @@ def handle_webhook():
         print("❌ Error:", e, flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Required for Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=True)
