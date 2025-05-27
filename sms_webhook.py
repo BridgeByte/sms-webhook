@@ -10,6 +10,7 @@ app = Flask(__name__)
 def index():
     return "✅ Flask is running"
 
+# 🔐 Get Zoho access token
 def get_zoho_access_token():
     response = requests.post("https://accounts.zoho.com/oauth/v2/token", data={
         "refresh_token": os.environ["ZOHO_REFRESH_TOKEN"],
@@ -20,7 +21,8 @@ def get_zoho_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
-ringcentral_token_data = {"access_token": None, "expires_at": None}
+# 🔐 Get RingCentral token (JWT flow)
+ringcentral_token_data = {"access_token": None}
 
 def get_ringcentral_token():
     if ringcentral_token_data["access_token"]:
@@ -37,11 +39,10 @@ def get_ringcentral_token():
     response = requests.post(url, headers=headers, auth=auth, data=data)
     response.raise_for_status()
     token_json = response.json()
-
     ringcentral_token_data["access_token"] = token_json["access_token"]
     return token_json["access_token"]
 
-# ✅ New formatting function
+# ☎️ Clean phone numbers
 def format_phone_number(phone):
     digits = re.sub(r"\D", "", phone or "")
     if digits.startswith("1") and len(digits) == 11:
@@ -50,6 +51,7 @@ def format_phone_number(phone):
         return f"+1{digits}"
     return None
 
+# 📩 Message new leads
 def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
@@ -57,12 +59,10 @@ def message_new_leads_and_update_zoho():
     response = requests.get(
         "https://www.zohoapis.com/crm/v2/Leads",
         headers=zoho_headers,
-        params={"page": 1, "per_page": 10}
+        params={"page": 1, "per_page": 100}
     )
     leads = response.json().get("data", [])
-
-    print("📦 Raw Zoho lead data:", leads, flush=True)
-    print("🔢 Number of leads returned:", len(leads), flush=True)
+    print("🔢 Leads found:", len(leads), flush=True)
 
     rc_token = get_ringcentral_token()
     rc_headers = {
@@ -92,19 +92,17 @@ def message_new_leads_and_update_zoho():
 
         sms_payload = {
             "from": {"phoneNumber": sender_number},
-            "to": [{"phoneNumber": phone}],  # ✅ Already includes +1
+            "to": [{"phoneNumber": phone}],
             "text": message
         }
 
-        print("📤 Attempting to send SMS to:", phone)
-        print("📨 Message text:", message)
+        print("📤 Sending to lead:", phone)
         sms_response = requests.post(
             "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
             headers=rc_headers,
             json=sms_payload
         )
-
-        print("📬 SMS API response:", sms_response.status_code, sms_response.text)
+        print("📬 SMS status:", sms_response.status_code, sms_response.text)
 
         if sms_response.status_code == 200:
             update_data = {"data": [{"id": lead_id, "Lead_Status": "Attempted to Contact"}]}
@@ -113,17 +111,79 @@ def message_new_leads_and_update_zoho():
                 headers=zoho_headers,
                 json=update_data
             )
-            print("✅ Zoho status update response:", update_response.status_code)
+            print("✅ Lead status updated:", update_response.status_code)
 
+# 📩 Message all deals
+def message_all_deals():
+    zoho_token = get_zoho_access_token()
+    zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
+
+    response = requests.get(
+        "https://www.zohoapis.com/crm/v2/Potentials",
+        headers=zoho_headers,
+        params={"page": 1, "per_page": 100}
+    )
+    deals = response.json().get("data", [])
+    print("🔢 Deals found:", len(deals), flush=True)
+
+    rc_token = get_ringcentral_token()
+    rc_headers = {
+        "Authorization": f"Bearer {rc_token}",
+        "Content-Type": "application/json"
+    }
+    sender_number = os.environ["RC_FROM_NUMBER"]
+
+    for deal in deals:
+        contact = deal.get("Contact_Name", {})
+        phone = format_phone_number(contact.get("phone"))
+        name = contact.get("first_name") or "there"
+
+        if not phone:
+            continue
+
+        message = (
+            f"Hi {name}, it’s Steven from Aurora —\n\n"
+            "Only 3 days left in our BIGGEST sale ever:\n"
+            "Up to 50% off select kitchens + Free shipping (up to $5,000).\n"
+            "Clive Christian, Valcucine, Downsview, Poggenpohl & more.\n\n"
+            "If you see anything you like, just text me — I’ll help you lock it in.\n"
+            "Browse: https://auroracirc.com/collections/memorial-day-sale"
+        )
+
+        sms_payload = {
+            "from": {"phoneNumber": sender_number},
+            "to": [{"phoneNumber": phone}],
+            "text": message
+        }
+
+        print("📤 Sending to deal:", phone)
+        sms_response = requests.post(
+            "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
+            headers=rc_headers,
+            json=sms_payload
+        )
+        print("📬 SMS status:", sms_response.status_code, sms_response.text)
+
+# 🚀 Routes
 @app.route("/message_new_leads", methods=["POST"])
-def handle_webhook():
+def trigger_lead_messaging():
     try:
         message_new_leads_and_update_zoho()
         return jsonify({"success": True, "message": "New leads messaged and updated."}), 200
     except Exception as e:
-        print("❌ Error:", e, flush=True)
+        print("❌ Error messaging leads:", e, flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route("/message_all_deals", methods=["POST"])
+def trigger_deal_messaging():
+    try:
+        message_all_deals()
+        return jsonify({"success": True, "message": "Deals messaged."}), 200
+    except Exception as e:
+        print("❌ Error messaging deals:", e, flush=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# 🔄 Run app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=True)
