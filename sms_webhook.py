@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import re
-import time  # ⏱ Prevent rate-limiting
+import time
 
 app = Flask(__name__)
 
@@ -10,7 +10,6 @@ app = Flask(__name__)
 def index():
     return "✅ Flask is running"
 
-# 🔐 Get Zoho access token
 def get_zoho_access_token():
     response = requests.post("https://accounts.zoho.com/oauth/v2/token", data={
         "refresh_token": os.environ["ZOHO_REFRESH_TOKEN"],
@@ -21,7 +20,6 @@ def get_zoho_access_token():
     response.raise_for_status()
     return response.json()["access_token"]
 
-# 🔐 Get RingCentral access token (JWT)
 ringcentral_token_data = {"access_token": None}
 
 def get_ringcentral_token():
@@ -42,7 +40,6 @@ def get_ringcentral_token():
     ringcentral_token_data["access_token"] = token_json["access_token"]
     return token_json["access_token"]
 
-# ☎️ Format phone number
 def format_phone_number(phone):
     digits = re.sub(r"\D", "", phone or "")
     if digits.startswith("1") and len(digits) == 11:
@@ -51,7 +48,6 @@ def format_phone_number(phone):
         return f"+1{digits}"
     return None
 
-# 📩 Message new leads
 def message_new_leads_and_update_zoho():
     zoho_token = get_zoho_access_token()
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
@@ -113,9 +109,8 @@ def message_new_leads_and_update_zoho():
             )
             print("✅ Lead status updated:", update_response.status_code)
 
-        time.sleep(1.1)  # ⏱ Prevent rate-limiting
+        time.sleep(1.1)
 
-# 📩 Message all deals
 def message_all_deals():
     zoho_token = get_zoho_access_token()
     zoho_headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
@@ -136,6 +131,11 @@ def message_all_deals():
     sender_number = os.environ["RC_FROM_NUMBER"]
 
     for deal in deals:
+        owner_email = deal.get("Owner", {}).get("email")
+        if owner_email != "Sbridge@auroracirc.com":
+            print(f"⏭ Skipping deal '{deal.get('Deal_Name')}' — not your deal")
+            continue
+
         contact_ref = deal.get("Contact_Name", {})
         contact_id = contact_ref.get("id")
 
@@ -177,9 +177,8 @@ def message_all_deals():
         )
         print("📬 SMS status:", sms_response.status_code, sms_response.text)
 
-        time.sleep(1.1)  # ⏱ Prevent rate-limiting
+        time.sleep(1.1)
 
-# 🌐 Routes
 @app.route("/message_new_leads", methods=["POST"])
 def trigger_lead_messaging():
     try:
@@ -198,7 +197,6 @@ def trigger_deal_messaging():
         print("❌ Error messaging deals:", e, flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
-# 🔄 Run app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=True)
