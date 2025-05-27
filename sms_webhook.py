@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-from datetime import datetime
 import re
 
 app = Flask(__name__)
@@ -42,7 +41,7 @@ def get_ringcentral_token():
     ringcentral_token_data["access_token"] = token_json["access_token"]
     return token_json["access_token"]
 
-# ☎️ Clean phone numbers
+# ☎️ Format phone numbers
 def format_phone_number(phone):
     digits = re.sub(r"\D", "", phone or "")
     if digits.startswith("1") and len(digits) == 11:
@@ -134,11 +133,22 @@ def message_all_deals():
     sender_number = os.environ["RC_FROM_NUMBER"]
 
     for deal in deals:
-        contact = deal.get("Contact_Name", {})
-        phone = format_phone_number(contact.get("phone"))
-        name = contact.get("first_name") or "there"
+        contact_ref = deal.get("Contact_Name", {})
+        contact_id = contact_ref.get("id")
+        name = contact_ref.get("name") or "there"
+
+        if not contact_id:
+            continue
+
+        contact_response = requests.get(
+            f"https://www.zohoapis.com/crm/v2/Contacts/{contact_id}",
+            headers=zoho_headers
+        )
+        contact_data = contact_response.json().get("data", [{}])[0]
+        phone = format_phone_number(contact_data.get("Phone"))
 
         if not phone:
+            print(f"❌ Skipping deal '{deal.get('Deal_Name')}' — No phone number found.")
             continue
 
         message = (
@@ -156,7 +166,7 @@ def message_all_deals():
             "text": message
         }
 
-        print("📤 Sending to deal:", phone)
+        print(f"📤 Sending to {phone} from deal '{deal.get('Deal_Name')}'")
         sms_response = requests.post(
             "https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/sms",
             headers=rc_headers,
@@ -164,7 +174,7 @@ def message_all_deals():
         )
         print("📬 SMS status:", sms_response.status_code, sms_response.text)
 
-# 🚀 Routes
+# 🌐 Routes
 @app.route("/message_new_leads", methods=["POST"])
 def trigger_lead_messaging():
     try:
